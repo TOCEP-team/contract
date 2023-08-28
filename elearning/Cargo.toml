@@ -1,0 +1,21 @@
+[package]
+name = "elearning"
+version = "0.1.0"
+edition = "2021"
+description = "The Contract For E-Learning platform"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+hex = "0.4.3"
+near-sdk = "4.1.1"
+unidecode = "0.3.0"
+
+[profile.release]
+codegen-units=1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true

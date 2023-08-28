@@ -1,0 +1,219 @@
+* Registration
+** Create User
+#+begin_src sh :results output :session share
+  near call main-contract.elearning.testnet create_user '{"nickname" : "your nick here"}' --accountId your_account.testnet 
+#+end_src
+
+** Get user information 
++ This function will return information about a user based on their user ID.
+#+begin_src sh :results output :session share :async true
+  near view main-contract.elearning.testnet get_user_metadata_by_user_id '{"user_id" : "your_account.testnet"}'
+#+end_src
+
+** Update user information
++ You can provide one or multiple pieces of information at once
+#+begin_src sh :results output :session share :async true
+  near call main-contract.elearning.testnet update_user_information '{"nickname" : "content here", "first_name": "content here", "last_name": "content here", "bio": "content here", "avatar" : "content here", "resume" : "content here"}' --accountId your_acccount.testnet
+#+end_src
+
+** Update user role. User become Instructor
++ Request the user to update their resume.
+#+begin_src sh :results output :session share :async true
+  near call main-contract.elearning.testnet update_role --accountId your_account.testnet
+#+end_src
+
+* Course
+** Create course
++ Create new course. Here's an example of a course that costs 100 NEAR, along with some skills that the user may acquire upon completing the course.
++ You need to be an instructor to be able to use this function.
+#+begin_src sh :results output :session share :async true
+  near call main-contract.elearning.testnet create_course '{"title" : "course title here", "price" : "100","skills": ["rust","near","bos"]}' --accountId your_account.testnet  
+#+end_src
+
+** Get course information
++ This function will return information about a course based on its course ID.
+#+begin_src sh :results output
+  near call main-contract.elearning.testnet get_course_metadata_by_course_id '{"course_id": "course id here"}'
+#+end_src
+
+** Update Course
++ You can provide one or multiple pieces of information at once
+#+begin_src sh :results output
+  near call main-contract.elearning.testnet update_course '{"course_id": "course id here", "content" : "content here", "description" : "content here", "media" : "content here", "price" : "price here", "title" : "title here"}' --accountId your_account.testnet
+#+end_src
+
+** Payment_course
++ The encoded check is unique and utilized for certain features of the system to ensure the rights of both learners and instructors.
++ This is an example of purchasing a course on the platform.
+#+begin_src sh :results output :session share :async true
+  near call main-contract.elearning.testnet payment_course '{"course_id" : "course id here","encode_check":"8aaf2eec0bda202d8b6f76d3e5a9e468b840703c3d40003cbc00af6d007c05dd"}' --accountId your_account.testnet --amount <input course price>
+#+end_src
+
+** Completed Course
++ Our system allows learners to complete a course upon finishing the curriculum without the need for confirmation from a third party. This is a example.
++ Users can earn credit points and add the skills they acquire upon completing the course.
+#+begin_src sh :results output :session share
+  near call main-contract.elearning.testnet make_user_finish_course '{"course_id": "course id here",  "media": "media", "rating": 9,"hash_collection": "41847e1b0343dacab712538306e9df858bc6c6bbfbfb5e1b93f5990ac5922e4e"}' --accountId your_account.testnet  
+#+end_src
+
+** Collab Course
+*** Agree consensus
++ The course owners agree to allocate a certain amount of the course's units they possess to someone who wishes to join the course's instructor team. The total default unit count is 10,000.
++ The money earned from selling the course will be distributed to the course instructors based on the unit amount they own.
+#+begin_src sh :results output :session share :async true
+ near call main-contract.elearning.testnet agree_consensus '{"course_id" : "course id here", "amount" : <$number here>}' --accountId your_account.testnet 
+#+end_src
+
+*** Add new instructor
++ Instructors can add other instructors to their courses when there is unanimous agreement among all instructors involved.
+#+begin_src sh :results output :session share :async true
+  near call main-contract.elearning.testnet add_instructor '{"course_id" : "course id here", "new_instructor" : "new_instructor.testnet"}' --accountId your_account.testnet 
+#+end_src
+
+*** Transfer unit
++ Instructors within a course can exchange units with each other.
+#+begin_src sh :results output
+  near call main-contract.elearning.testnet transfer_unit '{"course_id" : "course id here", "instructor" : "<instructor>.testnet", "amount": <$number here>}' --accountId your_account.testnet
+#+end_src
+
+*** Remove instructor
+#+begin_src sh :results output
+  near call main-contract.elearning.testnet remove_instructor '{"course_id" : "course id here", "instructor_id": "<instructor>.testnet"}' --accountId your_account.testnet
+#+end_src
+
+*** Update Consensus
++ Instructors can modify the agreed-upon unit amount they possess.
+#+begin_src sh :results output
+  near call main-contract.elearning.testnet update_consensus '{"course_id":"khoa_hoc_lap_trinh_blockchain_near_instructor-vbi", "amount" : <$number here>}' --account-id instructor-vbi.testnet
+#+end_src
+
+** Combo course
+*** Create combo
++ Instructors can create their own course combos to sell, or they can collaborate with one or more other instructors to offer combined course combos for sale.
++ This is example create combo 2 course
+#+begin_src sh :results output :session share
+  near call main-contract.elearning.testnet create_combo '{"combo_title" : "combo title here", "courses": [{"course_id":"course1 in combo","price":<$number here>},{"course_id":"course2 in combo","price":<$number here>}]}' --accountId your_account.testnet  
+#+end_src
+
+*** get all combo information
++ Retrieve all information about the combo.
+#+begin_src sh :results output :session share
+  near view main-contract.elearning.testnet get_all_combo_metadata
+#+end_src
+
+*** enable combo
++ All courses added to a combo must receive approval from all the instructors and their respective courses involved.
++ You must be the owner of a course included in the combo list in order to utilize this function.
+#+begin_src sh :results output :session share
+  near call main-contract.elearning.testnet enable_course '{"combo_id":"combo id here","course_id":"course id here"}' --accountId your_account.testnet
+#+end_src
+
+*** Payment combo
++ Here's an example of purchasing a combo. The encoded information is used to ensure the user's rights as explained above.
+#+begin_src sh :results output :session share
+  near call main-contract.elearning.testnet payment_combo '{"combo_id":"combo id here","combo_hash":[{"course_id":"course id here","encode_check":"8aaf2eec0bda202d8b6f76d3e5a9e468b840703c3d40003cbc00af6d007c05dd"},{"course_id":"course id here","encode_check":"8aaf2eec0bda202d8b6f76d3e5a9e468b840703c3d40003cbc00af6d007c05dd"}]}' --accountId your_account.testnet --amount <combo price>  
+#+end_src
+
+* Certificate
+** View Certificate
++ Get all certitficate information.
+#+begin_src sh :results output
+  near view main-contract.elearning.testnet get_certificate_metadata_by_certificate_id '{"certificate_id":"certificate id here"}'
+#+end_src
+
+** View Cert by user id
++ Get the information of a certificate using its certificate ID.
+#+begin_src sh :results output
+  near view main-contract.elearning.testnet get_all_certificate_by_user_id '{"user_id": "user id here"}'
+#+end_src
+
+* Mentoring
+** Create mentoring
++ You can create your own mentoring program. Users will utilize your mentoring service to support their learning process.
+#+begin_src sh :results output :session share :async true
+  near call main-contract.elearning.testnet create_mentoring '{"mentoring_title" : "mentoring title here","price_per_lession":"<$price here>"}' --accountId your_account.testnet
+#+end_src
+
+** get all mentoring
++ Retrieve information about the entire mentoring program.
+#+begin_src sh :results output :session share :async true
+  near view main-contract.elearning.testnet get_all_mentoring_metadata
+#+end_src
+
+** get_mentoring_metadata_by_mentoring_id
++ Retrieve information about a mentoring program using its mentoring ID.
+#+begin_src sh :results output
+  near view main-contract.elearning.testnet get_mentoring_metadata_by_mentoring_id '{"mentoring_id" : "mentoring id here"}'
+#+end_src
+
+** Buy mentoring
++ You will be charged for the mentoring process based on the number of sessions required to support your learning journey.
++ You can stop the learning process at any time if you are not satisfied. The tuition fee will be paid per each of your learning sessions.
+#+begin_src sh :results output :session share
+  near call pool-contract.elearning.testnet buy_mentoring '{"mentoring_id" : "mentoring id here"}' --accountId your_account.testnet --amount <$amount> 
+#+end_src
+
+** make lession completed
++ The tuition fee for one mentoring session is paid to the mentor upon the completion of the mentoring session.
+#+begin_src sh :results output :session share
+  near call main-contract.elearning.testnet make_lession_completed '{"mentoring_id":"mentoring id here","study_process_id":"study process id here"}' --accountId your_account.id
+#+end_src
+
+** Withdraw
++ If you are not satisfied with the mentoring process, you can withdraw your money.
+#+begin_src sh :results output :session share
+ near call main-contract.elearning.testnet mentoring_withdraw '{"mentoring_id": "metoring id here", "study_process_id": "study process id here"}' --accountId your_account.id
+#+end_src
+* Pool request
+** CreatePool
++ You can create a pool request to ask for something and gather individuals with similar needs.
++ For example, you can initiate a pool to request a course. Instructors can use this pool to make commitments and proceed to develop the course.
++ They will receive rewards from the amount of money staked in the pool by the learners.
+#+begin_src sh :results output :session share :async true
+  near call main-contract.elearning.testnet create_pool_request '{"pool_title": "title here", "maximum_stake": "<$number>","minimum_stake": "<$number>"}' --accountId your-account.id 
+#+end_src
+
+** Get all pool information 
++ Retrieve all information about the pools in the system.
+#+begin_src sh :results output :session share :async true
+  near view main-contract.elearning.testnet get_all_pool_metadata
+#+end_src
+
+** Get Pool information by pool id 
++ Retrieve all information about the pools in the system.
+#+begin_src sh :results output
+  near view main-contract.elearning.testnet get_pool_metadata_by_pool_id '{"pool_id":"pool"}'
+#+end_src
+
+** Stake
++ You can stake a certain amount of money and participate in a pool. You will be a student enrolled in the course being offered.
+#+begin_src sh :results output :session share :async true
+  near call pool_contract.elearning.testnet stake '{"pool_id" :"pool id here"}' --amount <$number> --accountId your_account.testnet 
+#+end_src
+
+** Unstake
++ You can unstake and receive back the amount of money you have staked.
+#+begin_src sh :results output
+  near call main_contract.elearning.testnet unstake '{"pool_id" : "pool id here"}' --accountId your_account.testnet
+#+end_src
+
+** Instructor apply pool
++ Instructors will apply to a pool and receive votes from the stakers within the pool.
+#+begin_src sh :results output :session share :async true
+  near call main_contract.elearning.testnet apply_pool '{"pool_id": "pool id here"}' --accountId your_account.testnet
+#+end_src
+
+** Vote
++ Stakers will choose the instructor they desire by voting for them.
+#+begin_src sh :results output :session share :async true
+  near call main_contract.elearning.testnet vote_instructor '{"pool_id":"pool id here","instructor_id":"instructor id"}' --accountId your_account.testnet
+#+end_src
+
+** Get winner
++ Stakers will choose the instructor they desire by voting for them.
+#+begin_src sh :results output :session share :async true
+  near call main_contract.elearning.testnet make_end_stake_process '{"pool_id":"pool id here"}' --accountId your_account.testnet
+#+end_src
+
+
+

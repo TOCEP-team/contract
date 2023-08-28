@@ -1,0 +1,624 @@
+#+TITLE: Transparent Open Collaborative E-Learning Platform - TOCEP
+#+DESCRIPTION: Applications are transforming the way we learn and teach online
+#+AUTHOR: Mai Xuan Tung
+#+SETUPFILE: ~/theme-readtheorg.setup
+#+HTML_HEAD: <style>pre.src{background:#343131;color:white;} </style>
+#+EXPORT_FILE_NAME: index.html
+
+#+begin_quote
++ Applications are transforming the way we learn and teach online
++ Anyone can be a Mentor, as long as they have the knowledge and experience to share
+#+end_quote
+
+* Problem Current
++ Lack of Connection and Trust:
+  1. People not knowing each other makes establishing connections and trust for collaboration difficult.
+  2. Convincing unfamiliar individuals to trust and collaborate with each other in creating teaching content or learning becomes a challenge.
+
++ Content Ownership Management:
+  1. Lecturers own knowledge and teaching content, but content usage rights are currently constrained by existing e-learning platforms.
+  2. Creating an environment for lecturers to leverage creativity and combine content more flexibly to produce unique courses poses a challenge.
+
++ Collaboration Difficulties:
+  1. Collaboration programs among lecturers need to be encouraged, but getting to know each other and initiating collaboration from scratch is complex.
+  2. A mechanism is needed to facilitate collaboration between unfamiliar parties.
+
++ Balancing Profit Distribution:
+  1. Distributing profits among participating parties, including lecturers, creators, and marketers, needs to be transparent and reasonable.
+  2. Establishing a profit-sharing system that ensures harmony among all involved parties is a challenge.
+
++ Building an Effective Rating System:
+  1. To ensure content quality and learner quality, a robust rating system is necessary.
+  2. Creating a transparent and fair rating system for both lecturers and learners is crucial.
+
++ Diverse Participation:
+  1. How to attract and ensure diverse participation from categories such as lecturers, learners, creators, and marketers?
+  2. Creating an engaging environment for everyone is a key consideration.
+
++ Building and Managing the Blockchain Infrastructure:
+  1. Developing and managing the blockchain system to support information and transaction management is a complex technical challenge.
+
++ Implementing DAO and Dispute Resolution:
+  1. Deploying and managing a DAO system for dispute resolution requires careful consideration and effective management.
+
+* General Ideas
+#+begin_quote
+We are building an e-learning platform that uses smart contracts to solve the problems you mentioned. This will make the process more transparent and fair for both students and teachers. It will also create incentives for experts to share their knowledge and for students to find mentors that are a good fit for them.
+#+end_quote
+
+* Mentoring System
++ The system will have a mechanism to allow experienced people to become mentors in a specific task, such as "guiding on writing smart contracts on Near." And use the pool mechanism to store students' money, after finishing each session, the student will submit and the money of each session will be paid to the teacher. But the teacher is also assured because the money has been stored in the pool, so it is certain that the session will be paid correctly => The most important thing for mentors at this time is to help students understand the lesson as well as possible.
+** Step 1: Create Mentoring Task
++ The mentor will create tasks with details such as:
+  + Information about the issue to be mentored.
+  + The amount per session.
+  + Additional description about the mentoring task.
++ I will store the mentoring information on a separate contract, and this contract will be used to store the funds from the users. Later, the access key will be deleted to ensure that we will not use the users' funds.
+**** Code: [[file:elearning/src/application/service/infrastructure/impl_mentor.rs::fn create_mentoring(&mut self, mentoring_title: String, price_per_lession: U128, description: Option<String>) {][Function - Create Mentoring]]
+#+begin_src rust
+  /// Mentor create a mentoring
+  fn create_mentoring(&mut self, mentoring_title: String, price_per_lession: U128, description: Option<String>) {
+    // Make sure only user can call this function
+    assert!(self.check_registration(&env::signer_account_id()), "You are not a user");
+    // Comvert mentoring title to mentoring id
+    let mentoring_id = convert_mentoring_title_to_mentoring_id(&mentoring_title, env::signer_account_id().to_string());
+    assert!(!self.check_mentoring_existence(&mentoring_id), "Mentoring id already exist");
+
+    // Cross call to pool and storage mentoring id, if success -> storage mentoring metadata in ELearning contract
+    cross_pool::ext(self.pool_address.to_owned())
+      .with_static_gas(GAS_FOR_CROSS_CALL)
+      .add_mentoring_id(mentoring_id.clone())
+      .then(Self::ext(env::current_account_id()).with_static_gas(GAS_FOR_CHECK_RESULT).storage_mentoring(
+        mentoring_title,
+        mentoring_id,
+        price_per_lession,
+        description,
+      ));
+  }
+#+end_src
+
+**** UI:
+[[./images/create_mentoring.png]]
+
+**** Result
+[[./images/mentoring_task.png]]
+
+** Step 2: Choose & Access this task
++ Learners will search for tasks that match their preferences, based on descriptions which could include factors like timing, pricing, mentor's reputation, and based on the reputation score.
++ After making their selection, they can access the chosen task with the number of sessions they desire. For instance, in this case, it's 10 NEAR tokens, and this is equivalent to 5 learning sessions.
++ The function will be called from the pool contract and a cross-call will be initiated back to the elearning contract once the data is confirmed correctly.
+**** Code:
+#+begin_src rust
+#[payable]
+fn buy_mentoring(&mut self, mentoring_id: MentoringId) -> PromiseOrValue<U128> {
+  assert!(env::attached_deposit() >= 1, "This function require an amount!");
+  assert!(self.check_mentoring_existence(&mentoring_id), "This mentoring is not exist");
+
+  let amount = env::attached_deposit();
+
+  Promise::new(env::current_account_id()).transfer(amount);
+  elearning_contract::ext(self.owner_id.clone())
+    .with_static_gas(GAS_FOR_CROSS_CALL)
+    .buy_mentoring_process(mentoring_id, amount.into())
+    .then(
+      Self::ext(env::current_account_id()).with_static_gas(GAS_FOR_CHECK_STAKE_RESULT).check_result(amount.into()),
+    )
+    .into()
+}
+#+end_src
+
+**** UI:
+[[./images/buy_mentoring.png]]
+**** Result:
+[[./images/imcomplete_mentor.png]]
+
+** Step 3: After completing
++ After completing each lesson, the learner will confirm using a function to accept that the session has been completed. The amount stored in the pool will be accessed and sent to the mentor.
+**** Code: [[file:elearning/src/application/service/infrastructure/impl_mentor.rs::fn make_lession_completed(&mut self, mentoring_id: MentoringId, study_process_id: StudyProcessId) {][Make Lession Completed]]
+#+begin_src rust
+  fn make_lession_completed(&mut self, mentoring_id: MentoringId, study_process_id: StudyProcessId) {
+    assert!(self.check_mentoring_existence(&mentoring_id), "Mentoring is not exist");
+    let student_id = env::signer_account_id();
+    assert!(self.check_student_in_mentoring(&mentoring_id, &student_id), "You are not a student in this mentoring");
+    assert!(
+      !self.check_study_process_state(&mentoring_id, &student_id, &study_process_id),
+      "This study process already has finished"
+    );
+
+    if self.check_last_lession(&mentoring_id, &student_id, &study_process_id) {
+      self.complete_last_lession(&mentoring_id, &study_process_id)
+    } else {
+      let mut mentoring_info = self.mentoring_metadata_by_mentoring_id.get(&mentoring_id).unwrap();
+      let price_per_lession = mentoring_info
+        .study_process
+        .get(&student_id)
+        .unwrap()
+        .study_process_list
+        .get(&study_process_id)
+        .unwrap()
+        .price_per_lession;
+
+      mentoring_info
+        .study_process
+        .get_mut(&student_id)
+        .unwrap()
+        .study_process_list
+        .get_mut(&study_process_id)
+        .unwrap()
+        .remaining_amout -= price_per_lession;
+
+      mentoring_info
+        .study_process
+        .get_mut(&student_id)
+        .unwrap()
+        .study_process_list
+        .get_mut(&study_process_id)
+        .unwrap()
+        .lession_completed += 1;
+
+      self.mentoring_metadata_by_mentoring_id.insert(&mentoring_id, &mentoring_info);
+      self.mentoring_claim(mentoring_id.clone(), student_id.clone(), study_process_id.clone());
+    }
+  }
+#+end_src
+
+**** UI:
+[[./images/make_completed.png]]
+
+**** Result: After concluding the 5 pre-purchased learning sessions, the outcomes will be transferred to the "completed mentoring" section.
+[[./images/completed_mentoring.png]]
+
+* Request Courses System
++ To address the issue of slow knowledge updates, we have implemented a mechanism that allows learners to create a request for a new topic. For instance, as an example, a request could be for a "Programming Language Move Course."
+** Step 1: Create Pool to Request a Course
+**** Code:
+#+begin_src rust
+fn create_pool_request(&mut self, pool_title: String, minimum_stake: U128, maximum_stake: U128) {
+  assert!(self.check_registration(&env::signer_account_id()), "You are not a user");
+  let pool_id = convert_pool_title_to_pool_id(&pool_title);
+  assert!(!self.check_pool_request_exist(&pool_id), "Pool id already exist");
+  cross_pool::ext(self.pool_address.to_owned())
+    .with_static_gas(GAS_FOR_CROSS_CALL)
+    .add_pool_id(pool_id.clone())
+    .then(Self::ext(env::current_account_id()).with_static_gas(GAS_FOR_CHECK_RESULT).storage_pool_request(
+      pool_id,
+      minimum_stake,
+      maximum_stake,
+    ));
+}
+#+end_src
+
++ Function to store the pool ID in the pool contract:
+#+begin_src rust
+/// Add pool_id when user create a new pool request. Only call by ELearning contract
+fn add_pool_id(&mut self, pool_id: PoolId) -> U128 {
+  assert!(self.owner_id == env::predecessor_account_id(), "You don't have permision");
+  // owner = pool.elearning-academy == env::predeecessor_account_id()
+  self.all_pool_id.insert(&pool_id);
+  U128(1)
+}
+#+end_src
+
++ And then save the information on the e-learning contract:
+#+begin_src rust
+#[private]
+fn storage_pool_request(&mut self, pool_id: PoolId, minimum_stake: U128, maximum_stake: U128) {
+  let result = match env::promise_result(0) {
+    PromiseResult::NotReady => env::abort(),
+    PromiseResult::Successful(value) => {
+      if let Ok(refund) = near_sdk::serde_json::from_slice::<U128>(&value) {
+        refund.0
+        // If we can't properly parse the value, the original amount is returned.
+      } else {
+        U128(2).into()
+      }
+    },
+    PromiseResult::Failed => U128(2).into(),
+  };
+  let minimum_stake: Balance = minimum_stake.into();
+  let maximum_stake: Balance = maximum_stake.into();
+  if result == 1 {
+    let pool_metadata = PoolMetadata {
+      create_at: env::block_timestamp_ms(),
+      current_stake: 0,
+      winner: None,
+      maximum_stake,
+      minimum_stake,
+      description: None,
+      owner_id: env::signer_account_id(),
+      pool_id: pool_id.clone(),
+      pool_state: PoolState::ACTIVE,
+      staking_period: 259200000,
+      instructors_votes: HashMap::new(),
+      total_stake: 0,
+      stake_info: HashMap::new(),
+      unstake_info: HashMap::new(),
+      unstaking_period: 864000000,
+    };
+    self.all_pool_id.insert(&pool_id);
+    self.pool_metadata_by_pool_id.insert(&pool_id, &pool_metadata);
+  }
+}
+#+end_src
+
+**** UI:
+[[./images/create_request.png]]
+
+**** Result:
+[[./images/pool_details.png]]
+**** View Info:
+#+begin_src sh :results output :session share :async true
+near view v1.elearning-academy.testnet get_pool_metadata_by_pool_id '{"pool_id" : "all_about_move_programming_language"}'
+#+end_src
+
+#+begin_example
+{
+  pool_id: 'all_about_move_programming_language',
+  owner_id: 'instructor1.testnet',
+  create_at: 1692854016890,
+  pool_state: 'ACTIVED',
+  total_stake: 0,
+  current_stake: 0,
+  minimum_stake: 10,
+  maximum_stake: 100,
+  staking_period: 259200000,
+  unstaking_period: 864000000,
+  instructors_votes: {},
+  winner: null,
+  stake_info: {},
+  unstake_info: {},
+  description: null
+}
+#+end_example
+
+** Step 2: Subscriber join the pool
++ Once the pool is active, individuals with similar needs can join in contributing to this pool to find mentors.
++ As the stake amount grows, it becomes easier to attract instructors who can then conduct the learning sessions.
+**** Code:
+#+begin_src rust
+#[payable]
+fn stake(&mut self, pool_id: PoolId) -> PromiseOrValue<U128> {
+  // TODO: Fix message
+  assert!(env::attached_deposit() >= 1, "This function require an amount!");
+  assert!(self.check_pool_existence(&pool_id), "This pool is not exist");
+
+  let amount = env::attached_deposit();
+
+  Promise::new(env::current_account_id()).transfer(amount);
+  elearning_contract::ext(self.owner_id.clone())
+    .with_static_gas(GAS_FOR_CROSS_CALL)
+    .stake_process(pool_id, amount.into())
+    .then(
+      Self::ext(env::current_account_id()).with_static_gas(GAS_FOR_CHECK_STAKE_RESULT).check_result(amount.into()),
+    )
+    .into()
+}
+#+end_src
+
+**** UI
+[[./images/stake_pool.png]]
+**** Result:
+[[./images/stake_info.png]]
+
+** Step 3: Instructors register to participate in teaching.
+**** Code:
+#+begin_src rust
+/// Instructor apply pool
+fn apply_pool(&mut self, pool_id: PoolId) {
+  let instructor_id = env::signer_account_id();
+  assert!(self.get_user_role(&instructor_id) == Roles::Instructor, "You must be a Instructor to apply");
+  let mut pool_info = self.pool_metadata_by_pool_id.get(&pool_id).unwrap();
+  assert!(!pool_info.instructors_votes.contains_key(&instructor_id), "You already apply");
+  pool_info.instructors_votes.insert(instructor_id, 0);
+  self.pool_metadata_by_pool_id.insert(&pool_id, &pool_info);
+}
+#+end_src
+
+**** UI:
+[[./images/submit_teach.png]]
+
+** Step 4: Vote for
+**** Code:
+#+begin_src rust
+/// stake vote for instructor
+fn vote_instructor(&mut self, pool_id: PoolId, instructor_id: UserId) {
+  let staker_id = env::signer_account_id();
+  assert!(self.check_staker(&pool_id, &staker_id), "You are not a staker in this pool");
+  let mut pool_info = self.pool_metadata_by_pool_id.get(&pool_id).unwrap();
+  assert!(pool_info.stake_info.get(&staker_id).unwrap().voted_for.is_none(), "You already voted");
+  // let a = pool_info.stake_info.get_mut(&staker_id).unwrap().voted_for.insert(instructor_id.clone());
+  pool_info.stake_info.get_mut(&staker_id).unwrap().voted_for = Some(instructor_id.clone());
+  ,*pool_info.instructors_votes.get_mut(&instructor_id).unwrap() += 1;
+  self.pool_metadata_by_pool_id.insert(&pool_id, &pool_info);
+}
+#+end_src
+
+**** UI & Result
+[[./images/vote_for.png]]
+
+** Step 5: Get Winner
+**** Code:
+#+begin_src rust
+/// Get winner and end stake
+fn make_end_stake_process(&mut self, pool_id: PoolId) {
+  assert!(self.check_pool_request_exist(&pool_id), "Poll is not exist");
+  let mut pool_info = self.pool_metadata_by_pool_id.get(&pool_id).unwrap();
+  assert!(pool_info.owner_id == env::signer_account_id(), "You are not pool owner");
+
+  let mut max_value: Option<u32> = None;
+  let mut max_keys: Option<AccountId> = None;
+
+  for (key, value) in pool_info.instructors_votes.iter() {
+    match max_value {
+      Some(current_max) if *value > current_max => {
+        max_keys = Some(key.clone());
+        max_value = Some(*value);
+      },
+      None => {
+        max_keys = Some(key.clone());
+        max_value = Some(*value);
+      },
+      _ => {},
+    }
+  }
+
+  let min_consensus_value = (pool_info.stake_info.len() * 2 / 3) as u32;
+  if max_keys.is_some() && max_value.unwrap() >= min_consensus_value {
+    pool_info.winner = max_keys;
+    self.pool_metadata_by_pool_id.insert(&pool_id, &pool_info);
+  }
+  pool_info.pool_state = PoolState::DEACTIVED;
+  self.pool_metadata_by_pool_id.insert(&pool_id, &pool_info);
+}
+#+end_src
+
+**** UI & Result:
+[[./images/winner_pool.png]]
+
+** Pool Info
+#+begin_src sh :results output :session share :async true
+near view v1.elearning-academy.testnet get_pool_metadata_by_pool_id '{"pool_id" : "all_about_move_programming_language"}'
+#+end_src
+
+#+begin_example
+{
+  pool_id: 'all_about_move_programming_language',
+  owner_id: 'instructor1.testnet',
+  create_at: 1692854016890,
+  pool_state: 'DEACTIVED',
+  total_stake: 2e+25,
+  current_stake: 2e+25,
+  minimum_stake: 10,
+  maximum_stake: 100,
+  staking_period: 259200000,
+  unstaking_period: 864000000,
+  instructors_votes: { 'subscriber-elearning.testnet': 1, 'instructor-elearning.testnet': 0 },
+  winner: 'subscriber-elearning.testnet',
+  stake_info: {
+    'instructor1.testnet': {
+      staker_id: 'instructor1.testnet',
+      stake_value: 2e+25,
+      stake_at: 1692856042220,
+      voted_for: 'subscriber-elearning.testnet'
+    }
+  },
+  unstake_info: {},
+  description: null
+}
+#+end_example
+
+* Combo Courses
++ Besides using it for individual course purchases, we can also utilize it to create combos at a lower cost when buying bundles, in order to attract more users.
+** Step 1: Create Combo
++ Code:
+#+begin_src rust
+fn create_combo(
+  &mut self,
+  combo_title: String,
+  courses: Vec<WrapCombo>,
+  description: Option<String>,
+  media: Option<String>,
+) {
+  assert!(self.check_registration(&env::signer_account_id()), "You are not a user");
+  for course_info in courses.clone() {
+    assert!(
+      self.check_course_existence(&course_info.course_id),
+      "Please check your course id {}",
+      course_info.course_id
+    );
+  }
+
+  let combo_id = convert_combo_title_to_combo_id(&combo_title);
+  assert!(!self.check_combo_existence(&combo_id), "Plase change your title");
+  let new_combo = ComboMetadata {
+    combo_id: combo_id.clone(),
+    combo_state: ComboState::DEACTIVED,
+    enable_course: vec![],
+    courses,
+    description,
+    media,
+  };
+  self.all_combo_id.insert(&combo_id);
+  self.combo_metadata_by_combo_id.insert(&combo_id, &new_combo);
+}
+#+end_src
+
++ UI:
+[[./images/create_combo.png]]
++ Result:
+[[./images/combo_details.png]]
+
+** Step 2: Agree to Active - Maybe of 2 different course
++ Code:
+#+begin_src rust
+fn enable_course(&mut self, combo_id: ComboId, course_id: CourseId) {
+  assert!(self.check_registration(&env::signer_account_id()), "You are not a user");
+  assert!(self.check_combo_existence(&combo_id), "Combo is not exsist");
+  assert!(self.check_course_in_combo(&combo_id, &course_id), "This course is not in this combo");
+  assert!(self.check_course_owner(&course_id, &env::signer_account_id()), "You are not course owner");
+
+  let mut combo_info = self.combo_metadata_by_combo_id.get(&combo_id).unwrap();
+  assert!(!combo_info.enable_course.contains(&course_id), "You already enable this course");
+
+  if combo_info.courses.len() - combo_info.enable_course.len() == 1 {
+    combo_info.combo_state = ComboState::ACTIVE
+  };
+  combo_info.enable_course.push(course_id);
+  self.combo_metadata_by_combo_id.insert(&combo_id, &combo_info);
+}
+#+end_src
+
++ Result:
+[[./images/combo_result.png]]
+
+** Step 3: User Payment
++ Code:
+#+begin_src rust
+#[payable]
+fn payment_combo(&mut self, combo_id: ComboId, combo_hash: Vec<WrapComboHash>) {
+  assert!(self.check_combo_existence(&combo_id), "Please check combo id");
+  assert!(self.check_combo_state(&combo_id) == ComboState::ACTIVE, "This combo is deactive");
+  for input_course in combo_hash.clone() {
+    assert!(self.check_course_in_combo(&combo_id, &input_course.course_id), "Please check course id is not in combo");
+  }
+
+  let price_set = self.combo_metadata_by_combo_id.get(&combo_id).unwrap().courses;
+  let mut combo_price: u128 = 0;
+  for price_per_course in price_set.iter() {
+    combo_price += price_per_course.price;
+  }
+  let amount_deposit = env::attached_deposit();
+  assert!(amount_deposit >= combo_price, "You do not deposit enough money");
+  let mut unique_course: Vec<WrapComboHash> = Vec::new();
+  let mut unique_course_id: Vec<CourseId> = Vec::new();
+
+  // Ensure that the courses are not duplicated
+  for course_info in combo_hash {
+    if !unique_course_id.contains(&course_info.course_id) {
+      unique_course.push(course_info.clone());
+      unique_course_id.push(course_info.course_id);
+    }
+  }
+  assert!(
+    self.combo_metadata_by_combo_id.get(&combo_id).unwrap().enable_course.len() == unique_course.len(),
+    "the courses are duplicated"
+  );
+  //self.tranfer_combo(combo_id);
+  for per_course in unique_course {
+    let mut price: Balance = 0;
+    let course = self.combo_metadata_by_combo_id.get(&combo_id).unwrap().courses;
+    for get_price in course.iter() {
+      if get_price.course_id == per_course.course_id {
+        price = get_price.price;
+      }
+    }
+    self.internal_tranfer_course(per_course.course_id, price, per_course.encode_check)
+  }
+}
+#+end_src
+
++ Result: Payment Success
+[[./images/payment_combo.png]]
+
+* Collaborative Requesters System
++ The system is used to collaboratively create a comprehensive course platform built by one or multiple individuals, enabling the offering of higher quality courses by leveraging the expertise of multiple contributors.
+** Case 1: One Instructors
+*** Step 1: Agree Consensus to Join this Course
++ This function is used to confirm the quantity of course shares that the collaborating individual will receive. The payment for each course will be based on these Unit points. The maximum ownership when creating a course is 10,000 Units, and it can be transferred to other instructors.
++ Code
+#+begin_src rust
+fn agree_consensus(&mut self, course_id: CourseId, amount: Unit) {
+  let mut course = self.get_course_metadata_by_course_id(course_id.clone()).unwrap();
+  assert!(
+    self.internal_check_instructor_member(&env::signer_account_id(), &course),
+    "You aren't members of this courses"
+  );
+
+  assert!(self.internal_check_consensus_member(&env::signer_account_id(), &course), "You already consensus");
+  assert!(self.internal_check_enough_unit(&env::signer_account_id(), &course, &amount), "Not enough unit");
+
+  course.consensus.insert(env::signer_account_id(), amount);
+  self.course_metadata_by_id.insert(&course_id, &course);
+}
+#+end_src
+
++ UI & Result
+[[./images/agree_consensus.png]]
+
+*** Step 2: Add New Instructor
++ Code:
+#+begin_src rust
+fn add_instructor(&mut self, course_id: CourseId, new_instructor: UserId) {
+  assert!(self.check_consensus(course_id.clone()), "You aren't have authority");
+  assert!(self.internal_check_instructor_exits(&course_id, &new_instructor), "The instructor already exists");
+  assert!(self.course_metadata_by_id.contains_key(&course_id), "The course doesn't exists");
+  let mut course = self.get_course_metadata_by_course_id(course_id.clone()).unwrap();
+
+  // Insert new instrutor with each unit from old instructors
+  let sum: u32 = course.consensus.values().sum();
+  course.instructor_id.insert(new_instructor, sum);
+
+  for i in course.clone().consensus.keys() {
+    let unit = *course.instructor_id.get(i).unwrap();
+    course.instructor_id.insert(i.clone(), unit - course.consensus.get(i).unwrap());
+    course.consensus.remove(i);
+  }
+
+  // update metadata
+  self.course_metadata_by_id.insert(&course_id, &course);
+}
+#+end_src
+
++ UI:
+[[./images/add_instructor.png]]
+
++ Result:
+[[./images/new_instructor.png]]
+** Case 2: Have 2 or more instructors
+*** Step 1: Agree Consensus to Join this Course
++ In the scenario where multiple instructors are already within the course, now a consensus of 2/3 of all instructors is required. In the case of 2 instructors and adding another person, both of the existing instructors will need to agree. For cases with 3 or more individuals, agreement from 2/3 of the total number of instructors is needed.
++ Code
+#+begin_src rust
+fn agree_consensus(&mut self, course_id: CourseId, amount: Unit) {
+  let mut course = self.get_course_metadata_by_course_id(course_id.clone()).unwrap();
+  assert!(
+    self.internal_check_instructor_member(&env::signer_account_id(), &course),
+    "You aren't members of this courses"
+  );
+
+  assert!(self.internal_check_consensus_member(&env::signer_account_id(), &course), "You already consensus");
+  assert!(self.internal_check_enough_unit(&env::signer_account_id(), &course, &amount), "Not enough unit");
+
+  course.consensus.insert(env::signer_account_id(), amount);
+  self.course_metadata_by_id.insert(&course_id, &course);
+}
+#+end_src
+
++ UI & Result
+[[./images/agree2.png]]
+
+*** Step 2: Add New Instructor
++ Code:
+#+begin_src rust
+fn add_instructor(&mut self, course_id: CourseId, new_instructor: UserId) {
+  assert!(self.check_consensus(course_id.clone()), "You aren't have authority");
+  assert!(self.internal_check_instructor_exits(&course_id, &new_instructor), "The instructor already exists");
+  assert!(self.course_metadata_by_id.contains_key(&course_id), "The course doesn't exists");
+  let mut course = self.get_course_metadata_by_course_id(course_id.clone()).unwrap();
+
+  // Insert new instrutor with each unit from old instructors
+  let sum: u32 = course.consensus.values().sum();
+  course.instructor_id.insert(new_instructor, sum);
+
+  for i in course.clone().consensus.keys() {
+    let unit = *course.instructor_id.get(i).unwrap();
+    course.instructor_id.insert(i.clone(), unit - course.consensus.get(i).unwrap());
+    course.consensus.remove(i);
+  }
+
+  // update metadata
+  self.course_metadata_by_id.insert(&course_id, &course);
+}
+#+end_src
+
++ New instructors will receive the agreed-upon number of Units from the existing instructors and their share will be determined accordingly.

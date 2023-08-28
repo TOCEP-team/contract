@@ -1,0 +1,8 @@
+/target
+/neardev/*
+/Cargo.lock
+*.rs~
+*.rs#
+#*#
+*.org~
+/.dir-locals.el
